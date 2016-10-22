@@ -2,9 +2,9 @@ const {join: joinPath} = require('path')
 const {spawn} = require('child_process')
 const fs = require('fs-promise')
 const denodeify = require('denodeify')
-const writeFile = denodeify(require('output-file'))
 const rimraf = denodeify(require('rimraf'))
 const uuid = require('uuid-v4')
+const download = require('download')
 const pkg = require('./package.json')
 
 const nedVersion = '0.0.3'
@@ -17,31 +17,51 @@ const makeBaseImage = (pathToApp, DockerfilePath) => new Promise((resolve, rejec
   ).on('close', exitCode => exitCode ? reject() : resolve())
 })
 
+// try to read Dockerfile before trying to docker build
+//   to avoid docker logging an error if it doesn't exist
+const handleBaseImage = (pathToApp, DockerfilePath) => fs.readFile(DockerfilePath)
+  .then(() => makeBaseImage(pathToApp, DockerfilePath))
+  .then(() => 'ned-app-base')
+  .catch(() => defaultBaseImage)
+
+const maybeDownloadDumbInit = (mode, dest) => mode === 'prod' ?
+  download('https://github.com/Yelp/dumb-init/releases/download/v1.2.0/dumb-init_1.2.0_amd64')
+    .then((contents) => fs.writeFile(dest, contents)) :
+  Promise.resolve()
+
 const sharedContents = ({from, user}) => `
   FROM ${from}
   ${from === 'ned-app-base' ? '' : 'RUN apk update && apk add python make g++'}
-  RUN npm install -g ned@${nedVersion}
+  RUN npm install -g \
+    ned@${nedVersion} \
+    yarn
 `
 
-const devContents = `
-  COPY ./package.json /ned/
-  RUN cd /ned; npm install
-  WORKDIR /ned/app
+const devContents = (pre, tmpDirname) => `
+  ${pre}
+  WORKDIR /app
+  COPY ./${tmpDirname}/image-files/entrypoint.sh /usr/local/bin/
+
+  ENTRYPOINT ["entrypoint.sh"]
   CMD ["ned", "dev", "-ltw"]
 `
 
-const prodContents = `
-  COPY ./package.json /ned/
-  RUN cd /ned; npm install
-  COPY ./ /ned/app/
-  WORKDIR /ned/app
-  RUN ned transpile src build
-  CMD ["node", "./build"]
-`
+const prodContents = (pre, tmpDirname) => `
+  ${pre}
 
-const getDockerfileContents = (baseImageName, mode) => `
-  ${sharedContents({from: baseImageName, user: process.getuid()})}
-  ${mode === 'dev' ? devContents : prodContents}
+  COPY ./${tmpDirname}/dumb-init /usr/local/bin/
+  RUN chmod +x /usr/local/bin/dumb-init
+
+  COPY ./ /app
+  WORKDIR /app
+  RUN yarn install
+  RUN ned transpile src build
+
+  RUN adduser -D node && chown -R node /app
+  USER node
+
+  ENTRYPOINT ["dumb-init", "--"]
+  CMD ["node", "./build"]
 `
 
 const dockerBuild = (appPath, mode, DockerfilePath) => new Promise((resolve, reject) => {
@@ -57,7 +77,8 @@ const buildImage = (pathToApp, mode) => {
   }
 
   const appPath = relativePath => joinPath(pathToApp, relativePath)
-  const tmpDir = appPath(`tmp_${pkg.name}_${uuid()}`)
+  const tmpDirname = `tmp_${pkg.name}_${uuid()}`
+  const tmpDir = appPath(tmpDirname)
   const tmpPath = relativePath => joinPath(tmpDir, relativePath)
   const cleanup = () => Promise.all([
     rimraf(tmpDir),
@@ -66,19 +87,22 @@ const buildImage = (pathToApp, mode) => {
     })
   ]).catch(() => {})
 
-  // try to read Dockerfile before trying to docker build
-  //   to avoid docker logging an error if it doesn't exist
-  return fs.readFile(appPath('Dockerfile'))
-    .then(() => makeBaseImage(pathToApp, appPath('Dockerfile')))
-    .then(() => 'ned-app-base')
-    .catch(() => defaultBaseImage)
-    .then(baseImageName => {
-      const DockerfileContents = getDockerfileContents(baseImageName, mode)
-      return writeFile(tmpPath('Dockerfile'), DockerfileContents)
+  return fs.mkdirs(tmpDir)
+    .then(() => Promise.all([
+      handleBaseImage(pathToApp, appPath('Dockerfile')),
+      fs.copy(joinPath(__dirname, 'image-files'), tmpPath('image-files')),
+      maybeDownloadDumbInit(mode, tmpPath('dumb-init'))
+    ]))
+    .then(([baseImageName]) => {
+      const pre = sharedContents({from: baseImageName, user: process.getuid()})
+      const DockerfileContents = mode === 'dev' ?
+        devContents(pre, tmpDirname) :
+        prodContents(pre, tmpDirname)
+      return fs.writeFile(tmpPath('Dockerfile'), DockerfileContents)
     })
     .then(() => dockerBuild(pathToApp, mode, tmpPath('Dockerfile')))
     .then(cleanup)
-    .catch(err => cleanup().then(() => { throw err }))
+    .catch(err => cleanup().then(() => { if (err) { throw err } }))
 }
 
 module.exports = buildImage

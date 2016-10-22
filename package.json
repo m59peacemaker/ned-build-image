@@ -21,6 +21,7 @@
   "license": "VOL",
   "dependencies": {
     "denodeify": "^1.2.1",
+    "download": "^5.0.2",
     "fs-promise": "^0.5.0",
     "output-file": "^1.1.1",
     "rimraf": "^2.5.4",
