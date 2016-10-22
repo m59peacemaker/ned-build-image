@@ -39,8 +39,9 @@ If there is a `Dockerfile` in the app root, it will be built and used as the bas
 
 ```sh
 docker run -it --rm \
--v $PWD:/app \
-ned-app-dev
+  -v $PWD:/app \
+  --user $(id -u) \
+  ned-app-dev
 ```
 
 ### CMD

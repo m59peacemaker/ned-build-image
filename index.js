@@ -8,7 +8,7 @@ const uuid = require('uuid-v4')
 const pkg = require('./package.json')
 
 const nedVersion = '0.0.3'
-const defaultBaseImage = 'mhart/alpine-node:6'
+const defaultBaseImage = 'mhart/alpine-node:6.3.1'
 
 const makeBaseImage = (pathToApp, DockerfilePath) => new Promise((resolve, reject) => {
   spawn(
@@ -17,31 +17,30 @@ const makeBaseImage = (pathToApp, DockerfilePath) => new Promise((resolve, rejec
   ).on('close', exitCode => exitCode ? reject() : resolve())
 })
 
-const sharedContents = ({from}) => `
+const sharedContents = ({from, user}) => `
   FROM ${from}
-
   ${from === 'ned-app-base' ? '' : 'RUN apk update && apk add python make g++'}
-
   RUN npm install -g ned@${nedVersion}
-
-  COPY ./package.json /app/
-  WORKDIR /app
-  RUN npm install
 `
 
 const devContents = `
-  ENTRYPOINT ["ned"]
-  CMD ["dev", "-ltw"]
+  COPY ./package.json /ned/
+  RUN cd /ned; npm install
+  WORKDIR /ned/app
+  CMD ["ned", "dev", "-ltw"]
 `
 
 const prodContents = `
-  COPY ./ /app/
+  COPY ./package.json /ned/
+  RUN cd /ned; npm install
+  COPY ./ /ned/app/
+  WORKDIR /ned/app
   RUN ned transpile src build
   CMD ["node", "./build"]
 `
 
 const getDockerfileContents = (baseImageName, mode) => `
-  ${sharedContents({from: baseImageName})}
+  ${sharedContents({from: baseImageName, user: process.getuid()})}
   ${mode === 'dev' ? devContents : prodContents}
 `
 
@@ -63,9 +62,9 @@ const buildImage = (pathToApp, mode) => {
   const cleanup = () => Promise.all([
     rimraf(tmpDir),
     new Promise((resolve, reject) => {
-      spawn('docker', ['rmi', 'ned-app-base'], {stdio: 'inherit'}).on('close', resolve)
+      spawn('docker', ['rmi', 'ned-app-base']).on('close', resolve)
     })
-  ])
+  ]).catch(() => {})
 
   // try to read Dockerfile before trying to docker build
   //   to avoid docker logging an error if it doesn't exist

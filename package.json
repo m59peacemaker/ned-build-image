@@ -1,6 +1,6 @@
 {
   "name": "ned-build-image",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Builds a docker image for running a node application developed with ned.",
   "keywords": [],
   "bin": {
