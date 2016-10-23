@@ -1,6 +1,6 @@
 {
   "name": "ned-build-image",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Builds a docker image for running a node application developed with ned.",
   "keywords": [],
   "bin": {
@@ -23,7 +23,6 @@
     "denodeify": "^1.2.1",
     "download": "^5.0.2",
     "fs-promise": "^0.5.0",
-    "output-file": "^1.1.1",
     "rimraf": "^2.5.4",
     "uuid-v4": "^0.1.0"
   },

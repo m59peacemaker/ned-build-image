@@ -7,7 +7,8 @@ const uuid = require('uuid-v4')
 const download = require('download')
 const pkg = require('./package.json')
 
-const nedVersion = '0.0.3'
+const nedVersion = '0.0.4'
+const yarnVersion = '0.16.1'
 const defaultBaseImage = 'mhart/alpine-node:6.3.1'
 
 const makeBaseImage = (pathToApp, DockerfilePath) => new Promise((resolve, reject) => {
@@ -29,12 +30,11 @@ const maybeDownloadDumbInit = (mode, dest) => mode === 'prod' ?
     .then((contents) => fs.writeFile(dest, contents)) :
   Promise.resolve()
 
-const sharedContents = ({from, user}) => `
+const sharedContents = ({from, nedVersion}) => `
   FROM ${from}
   ${from === 'ned-app-base' ? '' : 'RUN apk update && apk add python make g++'}
-  RUN npm install -g \
-    ned@${nedVersion} \
-    yarn
+  RUN npm install -g yarn@${yarnVersion}
+  RUN yarn global add ned@${nedVersion}
 `
 
 const devContents = (pre, tmpDirname) => `
@@ -94,7 +94,7 @@ const buildImage = (pathToApp, mode) => {
       maybeDownloadDumbInit(mode, tmpPath('dumb-init'))
     ]))
     .then(([baseImageName]) => {
-      const pre = sharedContents({from: baseImageName, user: process.getuid()})
+      const pre = sharedContents({from: baseImageName, nedVersion})
       const DockerfileContents = mode === 'dev' ?
         devContents(pre, tmpDirname) :
         prodContents(pre, tmpDirname)

@@ -23,7 +23,7 @@ test(`"${cmdName} dev" builds image that can transpile app`, t => {
     execSync(`docker run --rm \
       --user ${process.getuid()} \
       -v ${tmpDir}:/app \
-      ned-app-dev transpile`, {cwd: tmpDir, stdio: 'inherit'})
+      ned-app-dev ned transpile`, {cwd: tmpDir, stdio: 'inherit'})
     return execSync(`node ${path.join(tmpDir, 'build')}`)
   }, () => {})
   clean(['ned-app-dev'])
